@@ -9,7 +9,6 @@ import argparse
 import ConfigParser
 import io
 from datetime import datetime
-import logging
 import os, errno
 import re
 import serial
@@ -47,14 +46,6 @@ TOPIC = config.get('publish', 'topic')       or '/topic/ccost'
 # Log file
 LOGDIR   = '/home/sam/log/readSerial/%Y-%m-%d/'
 LOGFILE  = '%Y-%m-%d-%H-00-00.xml'
-
-# Add error logging
-log = logging.getLogger('stomp.py')
-strh = logging.StreamHandler()
-strh.setLevel(logging.DEBUG)
-log.addHandler(strh)
-
-#logging.basicConfig(level=logging.DEBUG)
 
 # Main loop variable
 running = True
