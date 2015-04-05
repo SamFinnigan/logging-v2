@@ -1,5 +1,6 @@
 #!/usr/bin/python
-# Stomp reader for TEDDI sensors
+#
+# Configurable Serial to STOMP bridge 
 # Author: Sam Mitchell Finnigan
 # Based on code by Sebastian Mellor
 #
