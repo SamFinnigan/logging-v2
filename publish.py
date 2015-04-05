@@ -1,13 +1,7 @@
 #!/usr/bin/python
 # Stomp reader for TEDDI sensors
-# 
-# Original code by Sebastian Mellor @ Culture Lab Newcastle
-#     s.j.i.mellor@newcastle.ac.uk
-# Based on Stomp.py example code at
-#     http://code.google.com/p/stomppy/wiki/SimpleExample
-# 
-# Regex compilation and argparse added by
-#     Sam Mitchell Finnigan
+# Author: Sam Mitchell Finnigan
+# Based on code by Sebastian Mellor
 #
 
 import argparse
