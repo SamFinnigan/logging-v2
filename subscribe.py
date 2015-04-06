@@ -6,6 +6,7 @@
 #
 
 import time
+from datetime import datetime
 import ConfigParser
 import argparse
 from stompy.simple import Client as StompClient
@@ -69,7 +70,7 @@ def main():
             s['dst'].split('.')[1] 
         ]
         
-    # Message RX loop
+    # Message RX and store loop
     while True:
         # Recieve message from subscribed queue
         message = stomp.get() 
@@ -80,11 +81,20 @@ def main():
         dst_co = dest[src][1]
         
         # Insert message into configured mongo db.collection
-        db = mongo[dst_db]
-        co = db[dst_co]
-        co.insert_one(message.body)
+        co = mongo[dst_db][dst_co]
+        try:
+            msg = json.loads(message.body)
+        except ValueError:
+            msg = { 'str' : message.body }
+       
+        # Call insert on Python dictionary
+        co.insert(msg)
 
-        #
+        # Print with -v switch
+        if args.verbosity >= 2:
+            print str(datetime.now()) + ": write to " + dst_db +"."+ dst_co
+        if args.verbosity >= 1:
+            print message.body
 
         # Loop
 
