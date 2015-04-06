@@ -1,0 +1,17 @@
+[
+	{
+		"name" : "Westfield",
+		"src" : "/topic/westfieldCC",
+		"dst" : "ccost.westfield"
+	},
+	{
+		"name" : "ncl-172ss-elec",
+		"src" : "/topic/ccost",
+		"dst" : "ccost.simonside172"
+	},
+    {
+        "name" : "ncl-172ss-env",
+		"src" : "/topic/bax172ss",
+        "dst" : "bax.simonside172"
+    }
+]
