@@ -37,11 +37,11 @@ config.read(args.config)
 DEVICE   = config.get('device', 'path')      or '/dev/serial/by-id/usb-Prolific_Technology_Inc._USB-Serial_Controller-if00-port0'
 BAUD     = config.getint('device', 'baud')   or 57600
 
-HOST  = config.get('publish', 'host')        or 'sjmf.in' 
-PORT  = config.getint('publish', 'port')     or 61613
-USER  = config.get('publish', 'user')        or 'pi'
-PASS  = config.get('publish', 'pass')        or 'raspberry'
-TOPIC = config.get('publish', 'topic')       or '/topic/ccost' 
+STOMP_HOST  = config.get('stomp', 'host')    or 'sjmf.in' 
+STOMP_PORT  = config.getint('stomp', 'port') or 61613
+STOMP_USER  = config.get('stomp', 'user')    or 'pi'
+STOMP_PASS  = config.get('stomp', 'pass')    or 'raspberry'
+PUB_TOPIC = config.get('publish', 'topic')   or '/topic/ccost' 
 
 # Log file
 LOGDIR   = '/home/sam/log/readSerial/%Y-%m-%d/'
@@ -61,8 +61,8 @@ def mkdir_p(path):
 
 ## Main class
 def main():
-    s=Client(host=HOST, port=PORT)
-    s.connect(USER, PASS)
+    s=Client(host=STOMP_HOST, port=STOMP_PORT)
+    s.connect(STOMP_USER, STOMP_PASS)
     
     ## attempt to open serial port (or die)
     ser = serial.Serial(DEVICE, BAUD)
@@ -115,7 +115,7 @@ def main():
         '}'
 
         ## send STOMP frame
-        s.put(json, destination=TOPIC)
+        s.put(json, destination=PUB_TOPIC)
 
     sock.close()
     s.disconnect()
