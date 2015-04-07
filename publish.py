@@ -18,8 +18,6 @@ import time
 
 from subprocess import Popen
 
-#logging.basicConfig(level=logging.DEBUG)
-
 ## Argument parsing from command line
 parser = argparse.ArgumentParser(description='Read data from the CurrentCost EnviR located at the serial device specified')
 
@@ -28,23 +26,37 @@ parser.add_argument('-c','--config',  action="store",  dest='config',    type=st
 
 args = parser.parse_args()
 
-## Read configuration file
-config = ConfigParser.RawConfigParser()
+## Read configuration file 
+# (defaults are provided to ConfigParser constructor)
+config = ConfigParser.RawConfigParser({
+    'path' : '/dev/serial/by-id/usb-Prolific_Technology_Inc._USB-Serial_Controller-if00-port0',
+    'baud' : 57600,
+    'host' : 'localhost',
+    'port' : 61613,
+    'user' : 'pi',
+    'pass' : 'raspberry',
+    'topic': '/topic/ccost',
+    'log'  : False,
+    'logdir':'/var/log/'
+})
 config.read(args.config)
 
-## make some global vars here
+# Read in configuration from provided --config file
 # Serial device
-DEVICE   = config.get('device', 'path')      or '/dev/serial/by-id/usb-Prolific_Technology_Inc._USB-Serial_Controller-if00-port0'
-BAUD     = config.getint('device', 'baud')   or 57600
+DEVICE      = config.get('device', 'path')
+BAUD        = config.getint('device', 'baud')
 
-STOMP_HOST  = config.get('stomp', 'host')    or 'sjmf.in' 
-STOMP_PORT  = config.getint('stomp', 'port') or 61613
-STOMP_USER  = config.get('stomp', 'user')    or 'pi'
-STOMP_PASS  = config.get('stomp', 'pass')    or 'raspberry'
-PUB_TOPIC = config.get('publish', 'topic')   or '/topic/ccost' 
+# STOMP credentials
+STOMP_HOST  = config.get('stomp', 'host')
+STOMP_PORT  = config.getint('stomp', 'port')
+STOMP_USER  = config.get('stomp', 'user')
+STOMP_PASS  = config.get('stomp', 'pass')
+PUB_TOPIC   = config.get('publish', 'topic')
 
-# Log file
-LOGDIR   = '/home/sam/log/readSerial/%Y-%m-%d/'
+# Log files
+LOGGING  = config.getboolean('publish', 'log')
+LOGDIR   = config.get('publish', 'logdir')
+LOGDIR   = LOGDIR + '%Y-%m-%d/'
 LOGFILE  = '%Y-%m-%d-%H-00-00.xml'
 
 # Main loop variable
@@ -77,13 +89,14 @@ def main():
         ## read from ACM0
         line = ser.readline()
         ## log to disk
-        # build filename from date/time
-        path = datetime.now().strftime(LOGDIR)
-        mkdir_p(path)
-        path = path + datetime.now().strftime(LOGFILE)
-        with open(path, 'a+') as f:
-            f.write(line)
-            f.close
+        if LOGGING:
+            # build filename from date/time
+            path = datetime.now().strftime(LOGDIR)
+            mkdir_p(path)
+            path = path + datetime.now().strftime(LOGFILE)
+            with open(path, 'a+') as f:
+                f.write(line)
+                f.close
 
         ## echo XML packet
 
