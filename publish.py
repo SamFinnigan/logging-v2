@@ -7,6 +7,8 @@
 
 import argparse
 import ConfigParser
+import json
+import yaml
 import io
 from datetime import datetime
 import os, errno
@@ -16,8 +18,6 @@ from stompy.simple import Client as StompClient
 import sys
 import signal
 import time
-import json
-
 
 ## Argument parsing from command line
 parser = argparse.ArgumentParser(description='Read data from the serial device located at the path specified')
@@ -37,6 +37,8 @@ config = ConfigParser.RawConfigParser({
     'user' : 'pi',
     'pass' : 'raspberry',
     'topic': '/topic/ccost',
+    'parsers_file': 'parsers.yml',
+    'parser': None, 
     'log'  : False,
     'logdir':'/var/log/'
 })
@@ -53,6 +55,8 @@ STOMP_PORT  = config.getint('stomp', 'port')
 STOMP_USER  = config.get('stomp', 'user')
 STOMP_PASS  = config.get('stomp', 'pass')
 PUB_TOPIC   = config.get('publish', 'topic')
+PARSERS_FILE= config.get('publish', 'parsers_file')
+PARSER      = config.get('publish', 'parser')
 
 # Log files
 LOGGING     = config.getboolean('publish', 'log')
@@ -81,9 +85,29 @@ def mkdir_p(path):
             pass
         else: raise
 
-# The LineTransform class can be subclassed to specify a transform on a given
-# data source- for example, transforming XML or CSV to JSON
-class LineTransform:
+
+# GenericTransform specifies a process of transformation on a line of
+# data, using a regex to split the line into groups which are output
+# in the order they are specified
+class GenericTransform:
+    def __init__(self, regex, groups):
+        self.regex = re.compile(regex)
+        self.groups = groups
+
+    def process(self, line):
+        match = self.regex.search(line)
+
+        if match is None:
+            print 'No match- something went wrong?'
+            return None
+        
+        final = dict( zip(self.groups, list( match.groups() )) )
+        return json.dumps( final, separators=(',', ':') )
+
+
+# The LineParser class specifies transforms on a given line as read from a
+# data source- for example, to transform XML or CSV into JSON
+class LineParser:
     def __init__(self):
         self.excludes = []
         self.transforms = []
@@ -103,40 +127,31 @@ class LineTransform:
         return False
 
     # Add a transform to modify data
-    def addTransform(self, fnPtr):
-        self.transforms.append(fnPtr)
+    def addTransform(self, genericTransform):
+        self.transforms.append(genericTransform)
     
     # Run through the transforms in the order they were added. 
     def runTransforms(self, line):
         for transform in self.transforms:
             if line != None:
-                line = transform(line)
+                line = transform.process(line)
             else:
                 break
 
         return line
 
-
-# Take an XML-formatted CurrentCost packet, and transform it to JSON
-def currentCostTransform(line):
-    prog = re.compile("src>([^<]+).+dsb>([^<]+).+time>([^<]+).+tmpr>([^<]+).+sensor>([^<]+).+id>([^<]+).+type>([^<]+).+watts>([^<]+)")
-    
-    m = prog.search(line)
-
-    if m is None:
-        print 'No match- something went wrong?'
-        return None
-
-    return json.dumps({
-        'Source'         : m.group(1),
-        'DaysSinceBirth' : m.group(2),
-        'Time'           : m.group(3),
-        'Temperature'    : m.group(4),
-        'Sensor'         : m.group(5),
-        'ID'             : m.group(6),
-        'Type'           : m.group(7),
-        'Watts'          : m.group(8)
-    }, separators=(',', ':'))
+    # Configure self with a parser from yaml config file
+    def loadConfiguration(self, find_parser, config):
+        with open(config, 'r') as stream:
+            parser_list = yaml.load(stream)
+      
+        parser = []
+        for p in parser_list['parsers']:
+            if p['name'] == find_parser:
+                parser = p
+        
+        transform = GenericTransform(parser['search'], parser['groups'])
+        self.addTransform(transform)
 
 
 # Main function
@@ -152,14 +167,16 @@ def main():
         sys.exit(1)
   
     # Setup transform
-    lformatter = LineTransform()
-    lformatter.addExclude('<hist>')
-    lformatter.addTransform(currentCostTransform)
-    
+    lformatter = LineParser()
+    lformatter.loadConfiguration(PARSER, PARSERS_FILE)
+
     while running:
         # read from serial
         line = ser.readline()
-        
+       
+        if args.verbosity > 2:
+            print line
+
         # Check if excluded
         if lformatter.matchExcludes(line) == True:
             continue

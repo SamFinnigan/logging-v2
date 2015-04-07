@@ -1,0 +1,39 @@
+#
+# This file defines parser types for data sources to be read and transformed
+# into a machine-readable format by publish.py
+#
+# A parser definition consists of a name, and a 'search' regular expression
+# with a number of groups. These groups are read into independent variables
+# in publish.py and serialised into JSON, then transmitted in STOMP format
+# to a message queue.
+# 
+# A list of regexes are also specified which will be used to exclude lines
+# received over the serial connection.
+#
+
+parsers:
+  - name: CurrentCost
+    search: src>([^<]+).+dsb>([^<]+).+time>([^<]+).+tmpr>([^<]+).+sensor>([^<]+).+id>([^<]+).+type>([^<]+).+watts>([^<]+) 
+    groups:
+      - Source
+      - DaysSinceBirth
+      - Time
+      - Temperature
+      - Sensor
+      - ID
+      - Type
+      - Watts
+    exclude: 
+      - <hist>
+ 
+  - name: otherBrand
+    search: <data><time>([0-9]+)</time><value>([0-9]+)</value></data>
+    groups:
+      - time
+      - value1
+      - value2
+      - value3
+    exclude:
+      - NODATALINE
+      - ^[#%;]
+
