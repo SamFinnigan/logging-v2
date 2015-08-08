@@ -7,19 +7,20 @@
 
 import argparse
 import ConfigParser
+import json
+import yaml
 import io
 from datetime import datetime
 import os, errno
 import re
 import serial
-from stompy.simple import Client
+from stompy.simple import Client as StompClient
 import sys
+import signal
 import time
 
-from subprocess import Popen
-
 ## Argument parsing from command line
-parser = argparse.ArgumentParser(description='Read data from the CurrentCost EnviR located at the serial device specified')
+parser = argparse.ArgumentParser(description='Read data from the serial device located at the path specified')
 
 parser.add_argument('-v','--verbose', action="count",  dest='verbosity', help='verbose output', default=0)
 parser.add_argument('-c','--config',  action="store",  dest='config',    type=str,  help='Configuration File', default='config.ini')
@@ -36,6 +37,8 @@ config = ConfigParser.RawConfigParser({
     'user' : 'pi',
     'pass' : 'raspberry',
     'topic': '/topic/ccost',
+    'parsers_file': 'parsers.yml',
+    'parser': None, 
     'log'  : False,
     'logdir':'/var/log/'
 })
@@ -52,17 +55,28 @@ STOMP_PORT  = config.getint('stomp', 'port')
 STOMP_USER  = config.get('stomp', 'user')
 STOMP_PASS  = config.get('stomp', 'pass')
 PUB_TOPIC   = config.get('publish', 'topic')
+PARSERS_FILE= config.get('publish', 'parsers_file')
+PARSER      = config.get('publish', 'parser')
 
 # Log files
-LOGGING  = config.getboolean('publish', 'log')
-LOGDIR   = config.get('publish', 'logdir')
-LOGDIR   = LOGDIR + '%Y-%m-%d/'
-LOGFILE  = '%Y-%m-%d-%H-00-00.xml'
+LOGGING     = config.getboolean('publish', 'log')
+LOGDIR      = config.get('publish', 'logdir')
+LOGDIR      = LOGDIR + '%Y-%m-%d/'
+LOGFILE     = '%Y-%m-%d-%H-00-00.xml'
+
 
 # Main loop variable
 running = True
 
-## Function to make a deep directory
+# Signal handler for clean exit
+def signal_handler(signum, frame):
+    running = False
+    print "Exiting on interrupt..."
+
+signal.signal(signal.SIGINT, signal_handler)
+
+
+## Function to make a deep directory (for logging)
 def mkdir_p(path):
     try:
         os.makedirs(path)
@@ -71,24 +85,111 @@ def mkdir_p(path):
             pass
         else: raise
 
-## Main class
+
+# GenericTransform specifies a process of transformation on a line of
+# data, using a regex to split the line into groups which are output
+# in the order they are specified
+class GenericTransform:
+    def __init__(self, regex, groups):
+        self.regex = re.compile(regex)
+        self.groups = groups
+
+    def process(self, line):
+        match = self.regex.search(line)
+
+        if match is None:
+            print 'No match- something went wrong?'
+            return None
+        
+        final = dict( zip(self.groups, list( match.groups() )) )
+        return json.dumps( final, separators=(',', ':') )
+
+
+# The LineParser class specifies transforms on a given line as read from a
+# data source- for example, to transform XML or CSV into JSON
+class LineParser:
+    def __init__(self):
+        self.excludes = []
+        self.transforms = []
+    
+    # Add a regex to exclude matching data
+    def addExclude(self, regex):
+        compiled = re.compile(regex)
+        self.excludes.append(compiled)
+
+    # Check if a line matches any added excludes
+    def matchExcludes(self, line):
+        for regex in self.excludes:
+            if regex.search(line) and args.verbosity > 0:
+                print "Dropping line as it matched an excluded regex"
+                return True
+
+        return False
+
+    # Add a transform to modify data
+    def addTransform(self, genericTransform):
+        self.transforms.append(genericTransform)
+    
+    # Run through the transforms in the order they were added. 
+    def runTransforms(self, line):
+        for transform in self.transforms:
+            if line != None:
+                line = transform.process(line)
+            else:
+                break
+
+        return line
+
+    # Configure self with a parser from yaml config file
+    def loadConfiguration(self, find_parser, config):
+        with open(config, 'r') as stream:
+            parser_list = yaml.load(stream)
+      
+        parser = []
+        for p in parser_list['parsers']:
+            if p['name'] == find_parser:
+                parser = p
+        
+        transform = GenericTransform(parser['search'], parser['groups'])
+        self.addTransform(transform)
+
+
+# Main function
 def main():
-    s=Client(host=STOMP_HOST, port=STOMP_PORT)
-    s.connect(STOMP_USER, STOMP_PASS)
+    
+    stomp=StompClient(STOMP_HOST, STOMP_PORT)
+    stomp.connect(STOMP_USER, STOMP_PASS)
     
     ## attempt to open serial port (or die)
     ser = serial.Serial(DEVICE, BAUD)
     if False:
         ser.close()
         sys.exit(1)
-    
-    prog = re.compile("src>([^<]+).+dsb>([^<]+).+time>([^<]+).+tmpr>([^<]+).+sensor>([^<]+).+id>([^<]+).+type>([^<]+).+watts>([^<]+)")
-    hist = re.compile('<hist>')
+  
+    # Setup transform
+    lformatter = LineParser()
+    lformatter.loadConfiguration(PARSER, PARSERS_FILE)
 
     while running:
-        ## read from ACM0
+        # read from serial
         line = ser.readline()
-        ## log to disk
+       
+        if args.verbosity > 2:
+            print line
+
+        # Check if excluded
+        if lformatter.matchExcludes(line) == True:
+            continue
+
+        # Transform to expected format
+        line = lformatter.runTransforms(line)
+        if line == None:
+            continue
+        
+        ## send STOMP frame
+        stomp.put(line, destination=PUB_TOPIC)
+        
+        # log to disk
         if LOGGING:
             # build filename from date/time
             path = datetime.now().strftime(LOGDIR)
@@ -98,40 +199,12 @@ def main():
                 f.write(line)
                 f.close
 
-        ## echo XML packet
-
-        ## Check for history packets
-        if hist.search(line):
-            if args.verbosity > 0:
-                print 'ignoring history packet'
-            continue
-
+        # Print (in verbose mode)
         if args.verbosity > 0:
             print line
 
-        ## convert to JSON
-        m = prog.search(line)
-
-        if m is None:
-            print 'No match- something went wrong?'
-            continue
-
-        json = '{' + \
-            '"Source":"'         + m.group(1) + '",' + \
-            '"DaysSinceBirth":"' + m.group(2) + '",' + \
-            '"Time":"'           + m.group(3) + '",' + \
-            '"Temperature":"'    + m.group(4) + '",' + \
-            '"Sensor":"'         + m.group(5) + '",' + \
-            '"ID":"'             + m.group(6) + '",' + \
-            '"Type":"'           + m.group(7) + '",' + \
-            '"Watts":"'          + m.group(8) + '"'  + \
-        '}'
-
-        ## send STOMP frame
-        s.put(json, destination=PUB_TOPIC)
-
-    sock.close()
-    s.disconnect()
+    ser.close()
+    stomp.disconnect()
 
 
 if __name__ == "__main__":
