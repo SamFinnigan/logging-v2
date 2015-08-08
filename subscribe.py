@@ -41,10 +41,25 @@ def readconf_json(sites_list):
     with open(sites_list) as f:
          return json.load(f)
 
-# Read in sites list from mysql
-# Not yet implemented!
-def readconf_mysql():
-    pass
+# Helper functions to auto-type strings to ints/floats
+def isStrInteger(s):
+    if type(s) is str or type(s) is unicode:
+        try:
+            int(s)
+            return True
+        except ValueError:
+            return False
+    return False
+
+def isStrFloat(s):        
+    if type(s) is str or type(s) is unicode:
+        try:
+            float(s)
+            return True
+        except ValueError:
+            return False
+    return False
+
 
 # Main program loop
 def main():
@@ -86,7 +101,14 @@ def main():
             msg = json.loads(message.body)
         except ValueError:
             msg = { 'str' : message.body }
-       
+        
+        # Convert strings which are ints to ints, and floats to floats
+        for d in msg:
+            if isStrInteger(msg[d]):
+                msg[d] = int(msg[d])
+            elif isStrFloat(msg[d]):
+                msg[d] = float(msg[d])
+
         # Call insert on Python dictionary
         co.insert(msg)
 
